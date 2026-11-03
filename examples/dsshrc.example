@@ -1,0 +1,73 @@
+# developers-sugary-shell-helper — example .dsshrc
+#
+# Copy into your project root as `.dsshrc`. Put hosts/keys in `.dsshrc.local`
+# (gitignored). Do not commit secrets.
+
+# --- targets -----------------------------------------------------------------
+# dssh_targets=backend,frontend,proxy
+# backend=./apps/api
+# backend_aliases=api
+# backend_service=api
+# backend_name=myapp-api
+# backend_image=myapp-api
+# backend_start="npm run dev"
+# backend_start_detached=1
+# backend_migrate="npm run prisma:migrate"
+# backend_migrate_local="docker compose up -d postgres"
+
+# frontend=./apps/web
+# frontend_aliases=web
+# frontend_service=web
+# frontend_name=myapp-web
+# frontend_start="npm run dev"
+# frontend_start_detached=1
+
+# proxy=./ops/nginx
+# proxy_aliases=nginx
+# proxy_service=nginx
+# proxy_name=myapp-proxy
+# proxy_user=root
+# proxy_mount_node_modules=0
+# proxy_start="nginx -g 'daemon off;'"
+# proxy_start_detached=1
+
+# --- mode --------------------------------------------------------------------
+# dssh_mode=auto          # auto|live|local  (or export DSSH_MODE)
+# auto uses dssh_live_detect_targets: live if any listed target's container
+# carries a com.docker.compose.service label.
+
+# --- live compose ------------------------------------------------------------
+# dssh_live_compose_file=docker-compose.yml
+# dssh_live_compose_prod_file=docker-compose.prod.yml
+# dssh_live_container_prefix=myapp-   # fallback name = prefix + compose service
+# dssh_live_detect_targets=backend,frontend,proxy
+# dssh_live_app_services=api,web,nginx
+# dssh_live_infra_services=postgres,redis
+# dssh_live_health_containers=myapp-postgres,myapp-api,myapp-web,myapp-proxy
+# dssh_live_health_url=https://127.0.0.1/api/health
+# dssh_live_health_url_http=http://127.0.0.1/api/health
+# dssh_live_health_exec_container=myapp-api
+# dssh_live_health_exec_url=http://127.0.0.1:4000/api/health
+# dssh_live_migrate_service=api
+# dssh_live_migrate_cmd='npx prisma migrate deploy --schema apps/api/prisma/schema.prisma'
+# dssh_migrate_target=backend
+
+# --- global host actions -----------------------------------------------------
+# dssh_publish_local=./ops/deploy/live.sh     # required for `dssh publish`
+# dssh_stop_local='docker ps -aq --filter label=dssh.image | xargs -r docker rm -f'
+# dssh_env_backup_relpath=ops/tooling/env-backup.sh  # under <alias>_repo after rnano
+
+# --- rlog --------------------------------------------------------------------
+# dssh_rlog_containers=backend,frontend,proxy
+# dssh_rlog_interval=1
+# dssh_rlog_dir=./ops/diagnostics
+# dssh_rlog_history_max=16777216
+# dssh_rlog_history_keep=3
+# dssh_rlog_archive_max=268435456
+# dssh_gpus=auto
+
+# --- remote edit aliases (prefer .dsshrc.local) ------------------------------
+# prod_env_host=ubuntu@203.0.113.10
+# prod_env_path=/var/www/myapp/.env
+# prod_env_key=~/.ssh/id_ed25519
+# prod_env_repo=/var/www/myapp
