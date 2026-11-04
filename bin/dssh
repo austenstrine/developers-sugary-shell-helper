@@ -2,8 +2,10 @@
 set -euo pipefail
 
 # Tool install dir (this script + bundled rlog.sh). Project root is separate.
-tool_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-tool_bin="$tool_dir/$(basename "${BASH_SOURCE[0]}")"
+# Resolve symlinks so ~/.local/bin/dssh → …/bin/dssh still finds sibling rlog.sh.
+tool_self="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s\n' "${BASH_SOURCE[0]}")"
+tool_dir="$(cd "$(dirname "$tool_self")" && pwd)"
+tool_bin="$tool_dir/$(basename "$tool_self")"
 
 find_project_root() {
   local dir
