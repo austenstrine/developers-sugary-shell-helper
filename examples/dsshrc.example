@@ -14,6 +14,13 @@
 # backend_start_detached=1
 # backend_migrate="npm run prisma:migrate"
 # backend_migrate_local="docker compose up -d postgres"
+# Optional start/restart preflight (both detect + apply required):
+#   detect exit 0 = in sync; non-zero = pending → prompt → apply on y
+# backend_start_preflight_detect='npx prisma migrate status --schema apps/api/prisma/schema.prisma'
+# backend_start_preflight_apply='"$tool_bin" backend migrate'
+# backend_start_preflight_prompt='Detected unapplied migrations. Run dssh backend migrate now? (y/N)'
+# backend_start_preflight_timeout=5
+# backend_start_preflight_default=N
 
 # frontend=./apps/web
 # frontend_aliases=web

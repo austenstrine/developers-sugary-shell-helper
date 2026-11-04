@@ -53,10 +53,17 @@ Host/key overrides go in gitignored `.dsshrc.local`.
 | `dssh_live_health_exec_container` / `_exec_url` | Fallback in-container probe |
 | `dssh_live_migrate_service` / `dssh_live_migrate_cmd` | Live migrate |
 | `dssh_migrate_target` | Local `dssh migrate` → `<target> migrate` |
+| `<target>_start_preflight_detect` | Host cmd before start/restart: exit `0` = nothing to do; non-zero = pending step |
+| `<target>_start_preflight_apply` | Host cmd run only after `y` confirmation |
+| `<target>_start_preflight_prompt` | Prompt text (default: generic “pending step”) |
+| `<target>_start_preflight_timeout` | Seconds to wait for answer (default `5`) |
+| `<target>_start_preflight_default` | `N` or `Y` when empty/timeout (default `N`) |
 | `dssh_publish_local` | Required for `dssh publish` |
 | `dssh_env_backup_relpath` | Relative to `<alias>_repo` after `rnano` |
 | `dssh_rlog_*` | Resource logger interval/dir/targets/retention |
 | `dssh_stop_local` / `dssh_status_local` / … | Global host actions |
+
+If either detect or apply is unset, start/restart behavior is unchanged. Detect uses exit status only (stdout ignored). Stack-specific commands (Prisma, SQL, …) belong in the consumer `.dsshrc`, not in this tool.
 
 See [`examples/dsshrc.example`](examples/dsshrc.example) for a commented template.
 
@@ -105,7 +112,7 @@ dssh gpu-probe                # soft-detect Docker GPU; prints --gpus all|cpu-on
 
 `dssh_gpus=auto` (default) enables `--gpus all` only after a real Docker attach probe succeeds. Missing toolkit, broken vendor/device discovery after a kernel upgrade, or empty GPU devices log a warning and continue cpu-only — start/restart/build never abort for GPU discovery. Set `dssh_gpus=off` to skip probing.
 
-Smoke: `tests/smoke-gpu-soft-fallback.sh`.
+Smoke: `tests/smoke-gpu-soft-fallback.sh`, `tests/smoke-start-preflight.sh`.
 
 ## License
 
