@@ -141,6 +141,7 @@ LOCAL (dev containers labeled dssh.image):
   <t> start|restart  rebuild image, then replace that container
   <t> migrate      via target action config
   gpu-setup        install NVIDIA Container Toolkit
+  gpu-probe        soft-detect Docker GPU (prints --gpus all|cpu-only; always exits 0)
 
 Examples:
   dssh publish
@@ -191,7 +192,62 @@ use_tty() {
 gpu_probe_done=0
 gpu_args=()
 
+# Soft-fail GPU discovery for start/restart/publish paths.
+# Always returns 0; sets gpu_args=(--gpus all) only after a real attach probe succeeds.
+warn_gpu_cpu_fallback() {
+  local detail="${1-}"
+  echo "dssh: Docker GPU attach failed; continuing cpu-only" >&2
+  if [[ -n "$detail" ]]; then
+    echo "dssh: $detail" >&2
+  fi
+  echo "dssh: fix with: $tool_bin gpu-setup   (or set dssh_gpus=off to silence)" >&2
+}
+
+gpu_probe_image() {
+  if docker image inspect alpine:latest >/dev/null 2>&1; then
+    printf '%s\n' "alpine:latest"
+    return 0
+  fi
+  if docker image inspect hello-world:latest >/dev/null 2>&1; then
+    printf '%s\n' "hello-world:latest"
+    return 0
+  fi
+  return 1
+}
+
+host_nvidia_smi_ok() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  nvidia-smi >/dev/null 2>&1
+}
+
+docker_has_nvidia_runtime() {
+  docker info --format '{{range $k, $v := .Runtimes}}{{println $k}}{{end}}' 2>/dev/null \
+    | grep -qx nvidia
+}
+
+probe_docker_gpu_attach() {
+  local probe_img="$1"
+  local err_file rc=1
+  err_file="$(mktemp)"
+  # alpine supports `true`; hello-world ignores args and still exercises --gpus.
+  if docker run --rm --gpus all "$probe_img" true >/dev/null 2>"$err_file"; then
+    rm -f "$err_file"
+    return 0
+  fi
+  if docker run --rm --gpus all "$probe_img" >/dev/null 2>"$err_file"; then
+    rm -f "$err_file"
+    return 0
+  fi
+  if [[ -s "$err_file" ]]; then
+    # One concise line for the caller to surface.
+    head -n 1 "$err_file" | tr -d '\r'
+  fi
+  rm -f "$err_file"
+  return 1
+}
+
 detect_docker_gpu() {
+  # Never abort the caller: every failure mode stays cpu-only with gpu_args=().
   if [[ "$gpu_probe_done" == "1" ]]; then
     return 0
   fi
@@ -200,29 +256,53 @@ detect_docker_gpu() {
   case "${dssh_gpus-auto}" in
     0|off|false|no) return 0 ;;
   esac
-  if ! command -v nvidia-smi >/dev/null 2>&1; then
-    return 0
-  fi
-  if ! nvidia-smi >/dev/null 2>&1; then
-    return 0
-  fi
-  if docker info --format '{{range $k, $v := .Runtimes}}{{println $k}}{{end}}' 2>/dev/null | grep -qx nvidia; then
-    gpu_args=(--gpus all)
-    return 0
-  fi
+
+  local host_gpu=0
+  local has_runtime=0
   local probe_img=""
-  if docker image inspect alpine:latest >/dev/null 2>&1; then
-    probe_img="alpine:latest"
-  elif docker image inspect hello-world:latest >/dev/null 2>&1; then
-    probe_img="hello-world:latest"
+  local probe_detail=""
+
+  if host_nvidia_smi_ok; then
+    host_gpu=1
   fi
-  if [[ -z "$probe_img" ]]; then
+  if docker_has_nvidia_runtime; then
+    has_runtime=1
+  fi
+
+  # No GPU signal at all → silent cpu-only.
+  if [[ "$host_gpu" != "1" && "$has_runtime" != "1" ]]; then
     return 0
   fi
-  if docker run --rm --gpus all "$probe_img" true >/dev/null 2>&1 \
-    || docker run --rm --gpus all "$probe_img" >/dev/null 2>&1; then
-    gpu_args=(--gpus all)
+
+  if ! probe_img="$(gpu_probe_image)"; then
+    warn_gpu_cpu_fallback "no local alpine/hello-world image to probe GPU attach"
+    return 0
   fi
+
+  # Require a real --gpus attach. Do not trust runtime registration alone:
+  # after kernel upgrades, nvidia runtime can remain registered while vendor
+  # discovery / device nodes fail, and docker run --gpus all would crash start.
+  if probe_detail="$(probe_docker_gpu_attach "$probe_img")"; then
+    gpu_args=(--gpus all)
+    return 0
+  fi
+
+  if [[ "$host_gpu" == "1" && "$has_runtime" != "1" ]]; then
+    echo "dssh: host GPU is up, but Docker has no working nvidia runtime; continuing cpu-only" >&2
+    echo "dssh: install toolkit with: $tool_bin gpu-setup" >&2
+    if [[ -n "$probe_detail" ]]; then
+      echo "dssh: $probe_detail" >&2
+    fi
+    return 0
+  fi
+
+  warn_gpu_cpu_fallback "${probe_detail:-vendor/device discovery failed}"
+  return 0
+}
+
+disable_docker_gpu() {
+  gpu_args=()
+  gpu_probe_done=1
 }
 
 gpu_setup() {
@@ -231,7 +311,8 @@ gpu_setup() {
   local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
   local list_file="/etc/apt/sources.list.d/nvidia-container-toolkit.list"
 
-  if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi >/dev/null 2>&1; then
+  # Setup itself may fail loudly — only discovery during start/restart is soft.
+  if ! host_nvidia_smi_ok; then
     echo "nvidia-smi is not working on the host yet. Enroll the NVIDIA MOK / load the driver first." >&2
     return 1
   fi
@@ -499,8 +580,10 @@ run_container() {
   detect_docker_gpu
 
   local run_args=(--rm)
+  local used_gpu=0
   if [[ ${#gpu_args[@]} -gt 0 ]]; then
     run_args+=("${gpu_args[@]}")
+    used_gpu=1
   fi
   if [[ "$detached" == "1" ]]; then
     run_args+=(-d)
@@ -534,7 +617,44 @@ run_container() {
     mount_args+=(-v "$node_modules_volume:$workdir_path/node_modules")
   fi
 
+  local rc=0
+  set +e
   docker run "${run_args[@]}" \
+    --network host \
+    "${env_args[@]}" \
+    "${mount_args[@]}" \
+    -w "$workdir_path" \
+    "$image_name" \
+    "$@"
+  rc=$?
+  set -e
+  if [[ $rc -eq 0 || "$used_gpu" != "1" ]]; then
+    return "$rc"
+  fi
+
+  # --gpus was set and docker run failed. Re-probe so a normal app exit is not
+  # masked; only soft-retry cpu-only when attach itself is broken.
+  local probe_img="" probe_detail=""
+  if ! probe_img="$(gpu_probe_image)"; then
+    return "$rc"
+  fi
+  if probe_detail="$(probe_docker_gpu_attach "$probe_img")"; then
+    return "$rc"
+  fi
+
+  warn_gpu_cpu_fallback "${probe_detail:-docker run --gpus failed at container start}"
+  disable_docker_gpu
+  local cpu_args=()
+  local i=0
+  while [[ $i -lt ${#run_args[@]} ]]; do
+    if [[ "${run_args[$i]}" == "--gpus" ]]; then
+      i=$((i + 2))
+      continue
+    fi
+    cpu_args+=("${run_args[$i]}")
+    i=$((i + 1))
+  done
+  docker run "${cpu_args[@]}" \
     --network host \
     "${env_args[@]}" \
     "${mount_args[@]}" \
@@ -764,11 +884,12 @@ show_local_status() {
   rlog_status
   echo
   echo "=== gpu ==="
+  gpu_probe_done=0
   detect_docker_gpu
   if [[ ${#gpu_args[@]} -gt 0 ]]; then
     echo "dssh docker: --gpus all"
-  elif command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-    echo "dssh docker: cpu-only (host GPU is up; install toolkit with: ./dssh gpu-setup)"
+  elif host_nvidia_smi_ok || docker_has_nvidia_runtime; then
+    echo "dssh docker: cpu-only (GPU visible on host but Docker attach failed; try: $tool_bin gpu-setup)"
   else
     echo "dssh docker: cpu-only"
   fi
@@ -1222,6 +1343,17 @@ run_global_action() {
     return $?
   fi
 
+  if [[ "$action_name" == "gpu-probe" ]]; then
+    gpu_probe_done=0
+    detect_docker_gpu
+    if [[ ${#gpu_args[@]} -gt 0 ]]; then
+      echo "dssh gpu-probe: --gpus all"
+    else
+      echo "dssh gpu-probe: cpu-only"
+    fi
+    return 0
+  fi
+
   if [[ "$action_name" == "status" || "$action_name" == "ps" ]]; then
     show_status
     return 0
@@ -1289,7 +1421,7 @@ fi
 run_as_global=0
 if [[ "$1" == "stop" || "$1" == "status" || "$1" == "ps" || "$1" == "health" \
   || "$1" == "logs" || "$1" == "rlog" || "$1" == "rnano" || "$1" == "publish" \
-  || "$1" == "migrate" || "$1" == "gpu-setup" ]]; then
+  || "$1" == "migrate" || "$1" == "gpu-setup" || "$1" == "gpu-probe" ]]; then
   run_as_global=1
 elif bash_ident "$1"; then
   global_action_var="dssh_${1}_local"
