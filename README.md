@@ -9,7 +9,7 @@ Consumer-specific names (container names, compose services, health probes, deplo
 ```bash
 git clone https://github.com/austenstrine/developers-sugary-shell-helper.git
 cd developers-sugary-shell-helper
-./install.sh          # symlinks bin/dssh → ~/.local/bin/dssh
+./install.sh          # symlinks bin/dssh + bin/rlog.sh → ~/.local/bin/
 # ensure ~/.local/bin is on PATH
 ```
 
@@ -19,7 +19,7 @@ Or point at the binary directly:
 export DSSH_BIN=/path/to/developers-sugary-shell-helper/bin/dssh
 ```
 
-`rlog.sh` ships next to `bin/dssh` and is started by `dssh rlog`.
+`rlog.sh` ships next to `bin/dssh`; `./install.sh` links both into `~/.local/bin`. Started by `dssh rlog`.
 
 ## Project root
 
