@@ -31,6 +31,11 @@ assert_eq() {
 	fi
 }
 
+assert_exit() {
+	local got="$1" want="$2" msg="${3:-assert_exit}"
+	assert_eq "$got" "$want" "$msg"
+}
+
 assert_contains() {
 	local hay="$1" needle="$2" msg="${3:-assert_contains}"
 	if ! grep -Fq -- "$needle" <<<"$hay"; then
@@ -63,9 +68,11 @@ harness_mktemp() {
 	HARNESS_PROJECT="$HARNESS_TMP/project"
 	HARNESS_DOCKER_LOG="$HARNESS_TMP/docker.log"
 	HARNESS_SSH_LOG="$HARNESS_TMP/ssh.log"
-	mkdir -p "$HARNESS_BIN" "$HARNESS_PROJECT"
+	mkdir -p "$HARNESS_BIN" "$HARNESS_PROJECT" "$HARNESS_TMP/runtime"
 	: >"$HARNESS_DOCKER_LOG"
 	: >"$HARNESS_SSH_LOG"
+	# Isolate flock path from the user's live dssh/rlog (XDG_RUNTIME_DIR/dssh-docker.lock).
+	export XDG_RUNTIME_DIR="$HARNESS_TMP/runtime"
 	# shellcheck disable=SC2064
 	trap "rm -rf '$HARNESS_TMP'" EXIT
 }

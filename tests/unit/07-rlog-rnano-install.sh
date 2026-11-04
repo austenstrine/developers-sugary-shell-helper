@@ -17,7 +17,7 @@ _plant_fake_rlog() {
 mkdir -p "${DSSH_RLOG_DIR:-.}"
 echo "$$" >"${DSSH_RLOG_DIR:-.}/rlog.pid"
 echo "fake $(date -Is)" >"${DSSH_RLOG_DIR:-.}/latest.txt"
-sleep 60
+sleep 8
 EOF
 	chmod +x "$HARNESS_PROJECT/fake-rlog.sh"
 }
@@ -25,7 +25,11 @@ EOF
 test_rlog_status_off() {
 	harness_mktemp
 	install_mocks
-	write_minimal_rc 'dssh_rlog_dir=./.dssh/rlog'
+	# Unique script path so pgrep -f does not match a host rlog on the real bin/rlog.sh.
+	printf '%s\n' '#!/bin/sh' 'exit 0' >"$HARNESS_PROJECT/not-running-rlog.sh"
+	chmod +x "$HARNESS_PROJECT/not-running-rlog.sh"
+	write_minimal_rc "dssh_rlog_dir=./.dssh/rlog
+dssh_rlog_script=./not-running-rlog.sh"
 	capture_dssh rs rlog status
 	assert_exit "$CAPTURE_RC" 0
 	assert_file_contains "$CAPTURE_OUT" "rlog off"
@@ -79,13 +83,16 @@ test_rlog_script_writes_latest() {
 	install_mocks "stats_line=c1|1.0%|10MiB / 100MiB|10.00%|0B / 0B|0B / 0B|1"
 	local dir="$HARNESS_TMP/rlogdir"
 	mkdir -p "$dir"
-	# Run real rlog briefly then kill
-	DSSH_RLOG_DIR="$dir" DSSH_RLOG_INTERVAL=0.2 DSSH_RLOG_TARGETS="backend=c1" \
-		bash "$RLOG_BIN" >/dev/null 2>&1 &
-	local pid=$!
-	sleep 0.6
-	kill "$pid" 2>/dev/null || true
-	wait "$pid" 2>/dev/null || true
+	# Must use mock docker on PATH; real `docker stats` can hang the suite.
+	set +e
+	timeout -k 1 2 env PATH="$PATH" DSSH_RLOG_DIR="$dir" DSSH_RLOG_INTERVAL=0.2 \
+		DSSH_RLOG_TARGETS="backend=c1" bash "$RLOG_BIN" >/dev/null 2>&1
+	set -e
+	if [[ -f "$dir/rlog.pid" ]]; then
+		kill "$(tr -d '[:space:]' <"$dir/rlog.pid")" 2>/dev/null || true
+		sleep 0.1
+		kill -9 "$(tr -d '[:space:]' <"$dir/rlog.pid")" 2>/dev/null || true
+	fi
 	[[ -f "$dir/latest.txt" ]] || fail "rlog did not write latest.txt"
 	assert_file_contains "$dir/latest.txt" "pid="
 	[[ -f "$dir/history.log" ]] || fail "rlog did not write history.log"
@@ -172,8 +179,7 @@ test_tool_dir_resolves_through_symlink() {
 	local dest="$HARNESS_TMP/destbin"
 	mkdir -p "$dest"
 	ln -sfn "$DSSH_BIN" "$dest/dssh"
-	# gpu-probe via symlink must still find sibling rlog path logic / run
-	capture via symlink:
+	# gpu-probe via symlink must still resolve tool_dir / run
 	local out rc=0
 	set +e
 	out="$(env DSSH_PROJECT_ROOT="$HARNESS_PROJECT" PATH="$HARNESS_BIN:/usr/bin:/bin" "$dest/dssh" gpu-probe 2>/dev/null)"

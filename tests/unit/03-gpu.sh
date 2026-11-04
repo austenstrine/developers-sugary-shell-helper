@@ -69,7 +69,8 @@ gpu_attach=fail"
 test_gpu_setup_fails_without_nvidia_smi() {
 	harness_mktemp
 	install_mocks
-	rm -f "$HARNESS_BIN/nvidia-smi"
+	# Shadow any host nvidia-smi with a failing stub (PATH prefers HARNESS_BIN).
+	plant_nvidia_smi 1
 	write_minimal_rc
 	capture_dssh gs gpu-setup
 	assert_exit "$CAPTURE_RC" 1

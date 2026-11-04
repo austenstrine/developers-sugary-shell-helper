@@ -47,13 +47,16 @@ case "$cmd" in
 		shift || true
 		if [[ "$sub" == "inspect" ]]; then
 			img="${1-}"
-			if [[ "$img" == alpine:latest && "$(sc has_alpine 1)" == "1" ]]; then
-				exit 0
+			# Probe images are gated by has_alpine / has_hello only.
+			if [[ "$img" == alpine:latest ]]; then
+				[[ "$(sc has_alpine 1)" == "1" ]] && exit 0
+				exit 1
 			fi
-			if [[ "$img" == hello-world:latest && "$(sc has_hello 0)" == "1" ]]; then
-				exit 0
+			if [[ "$img" == hello-world:latest ]]; then
+				[[ "$(sc has_hello 0)" == "1" ]] && exit 0
+				exit 1
 			fi
-			# Generic image inspect (built images): default ok unless image_inspect=0
+			# Generic image inspect (built app images): default ok unless image_inspect=0
 			if [[ "$(sc image_inspect 1)" == "1" ]]; then
 				exit 0
 			fi
@@ -146,8 +149,8 @@ case "$cmd" in
 		exit 0
 		;;
 	logs)
+		# Never follow forever in unit tests — print once and exit.
 		echo "mock-docker-logs"
-		# -f would hang; our tests avoid -f or we exit after one line
 		exit 0
 		;;
 	exec)

@@ -51,7 +51,7 @@ mkdir -p "${DSSH_RLOG_DIR:-.}"
 echo "$$" >"${DSSH_RLOG_DIR:-.}/rlog.pid"
 echo fake-rlog-ok >"${DSSH_RLOG_DIR:-.}/latest.txt"
 # stay alive briefly so rlog_is_running sees us, then exit
-sleep 30
+sleep 8
 EOF
 	chmod +x "$HARNESS_PROJECT/fake-rlog.sh"
 	# Point rlog at stub via override in rc
@@ -83,7 +83,9 @@ test_stop_live_hard() {
 	write_live_rc
 	capture_dssh stoph stop --hard
 	assert_exit "$CAPTURE_RC" 0
-	assert_file_contains "$CAPTURE_OUT" "DANGER: stopping entire live stack" || assert_file_contains "$CAPTURE_ERR" "DANGER: stopping entire live stack"
+	if ! grep -Fq 'DANGER: stopping entire live stack' "$CAPTURE_OUT" "$CAPTURE_ERR"; then
+		fail "expected DANGER message on stop --hard"
+	fi
 	assert_file_contains "$HARNESS_DOCKER_LOG" "compose"
 }
 

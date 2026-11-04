@@ -64,7 +64,9 @@ test_live_start_nobuild() {
 	write_live_rc
 	capture_dssh s backend start -nobuild
 	assert_exit "$CAPTURE_RC" 0
-	assert_file_contains "$CAPTURE_OUT" "no rebuild" || assert_file_contains "$CAPTURE_ERR" "no rebuild" || assert_file_contains "$CAPTURE_OUT" "replacing"
+	if ! grep -Eqi 'no rebuild|replacing' "$CAPTURE_OUT" "$CAPTURE_ERR"; then
+		fail "expected live replace message; out=$(cat "$CAPTURE_OUT") err=$(cat "$CAPTURE_ERR")"
+	fi
 	assert_file_contains "$HARNESS_DOCKER_LOG" "compose"
 }
 
@@ -131,11 +133,16 @@ test_live_custom_container_action() {
 
 test_live_shell_no_container() {
 	harness_mktemp
+	# live_container_name needs both _name and service/prefix unset to return empty.
 	install_mocks "inspect_running=0"
-	write_live_rc
+	write_live_rc 'backend_name=
+dssh_live_container_prefix=
+backend_service='
 	capture_dssh sh backend
 	assert_exit "$CAPTURE_RC" 1
-	assert_file_contains "$CAPTURE_ERR" "No live container"
+	if ! grep -Eqi 'No live compose service|No live container|backend_service' "$CAPTURE_ERR"; then
+		fail "expected missing live service/container; err=$(cat "$CAPTURE_ERR")"
+	fi
 }
 
 run_all_tests_in_file
