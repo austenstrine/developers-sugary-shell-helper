@@ -99,7 +99,13 @@ First consumer in the wild: [austenstrine/austenstrine_portfolio](https://github
 dssh <global-action>          # publish | status | health | logs | rlog | migrate | stop | rnano | …
 dssh <target> start|restart|stop|build|…
 dssh <target>                 # shell into running container (live) / interactive (local)
+dssh gpu-setup                # install NVIDIA Container Toolkit (may fail loudly)
+dssh gpu-probe                # soft-detect Docker GPU; prints --gpus all|cpu-only (exit 0)
 ```
+
+`dssh_gpus=auto` (default) enables `--gpus all` only after a real Docker attach probe succeeds. Missing toolkit, broken vendor/device discovery after a kernel upgrade, or empty GPU devices log a warning and continue cpu-only — start/restart/build never abort for GPU discovery. Set `dssh_gpus=off` to skip probing.
+
+Smoke: `tests/smoke-gpu-soft-fallback.sh`.
 
 ## License
 
