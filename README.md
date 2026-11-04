@@ -112,7 +112,19 @@ dssh gpu-probe                # soft-detect Docker GPU; prints --gpus all|cpu-on
 
 `dssh_gpus=auto` (default) enables `--gpus all` only after a real Docker attach probe succeeds. Missing toolkit, broken vendor/device discovery after a kernel upgrade, or empty GPU devices log a warning and continue cpu-only — start/restart/build never abort for GPU discovery. Set `dssh_gpus=off` to skip probing.
 
-Smoke: `tests/smoke-gpu-soft-fallback.sh`, `tests/smoke-start-preflight.sh`.
+## Tests
+
+```bash
+./tests/run-unit.sh
+```
+
+Fast unit suite (mocked `docker` / `ssh` / fs). Writes reports under:
+
+- `tests/reports/report.md` (and `latest.md`)
+- `tests/reports/junit.xml` (and `latest-junit.xml`)
+- `tests/reports/summary.json`
+
+Optional smokes (realer paths, still no full docker e2e): `tests/smoke-gpu-soft-fallback.sh`, `tests/smoke-start-preflight.sh`.
 
 ## License
 
