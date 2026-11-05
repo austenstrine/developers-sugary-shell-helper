@@ -122,6 +122,19 @@ test_live_logs_target() {
 	assert_exit "$CAPTURE_RC" 0
 }
 
+test_local_logs_target() {
+	harness_mktemp
+	install_mocks "ps_names=unit-backend"
+	write_minimal_rc
+	capture_dssh l backend logs
+	assert_exit "$CAPTURE_RC" 0
+	assert_file_contains "$CAPTURE_OUT" "mock-docker-logs"
+	# Must not fall through to docker run with CMD "logs" (node → /app/logs).
+	if grep -E 'docker run' "$HARNESS_DOCKER_LOG" >/dev/null 2>&1; then
+		fail "local <t> logs must not docker run; log=$(cat "$HARNESS_DOCKER_LOG")"
+	fi
+}
+
 test_live_custom_container_action() {
 	harness_mktemp
 	install_mocks "inspect_running=1"

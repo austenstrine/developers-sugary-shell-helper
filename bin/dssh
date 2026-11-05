@@ -123,6 +123,7 @@ LIVE (compose prod — container/service names from .dsshrc):
   health           containers from dssh_live_health_* + optional HTTP probe
   logs | logs <t>  follow compose service logs
   logs rlog        follow resource logger snapshot (latest.txt)
+  <t> logs         same as logs <t>
   rlog [on|off|status]
   migrate          dssh_live_migrate_cmd in dssh_live_migrate_service
   <t> restart      rebuild+replace ONE service (--no-deps); site stays up
@@ -140,6 +141,7 @@ LOCAL (dev containers labeled dssh.image):
   stop             stop dssh app containers + compose infra (+ dashboards)
   status | ps      dssh app containers + infra + rlog
   logs | logs <t>  follow dssh start containers
+  <t> logs         same as logs <t> (do not pass logs as a container CMD)
   <t> start|restart  rebuild image, then replace that container
   <t> migrate      via target action config
   gpu-setup        install NVIDIA Container Toolkit
@@ -150,6 +152,7 @@ Examples:
   dssh status
   dssh health
   dssh logs api
+  dssh backend logs
   dssh backend restart
   dssh stop --hard
   dssh backend start
@@ -1698,6 +1701,14 @@ if [[ "$1" == "restart" ]]; then
   shift
   # Keep the old container up during the image rebuild, then start replaces it.
   exec "$tool_bin" "$target_name" start "$@"
+fi
+
+# Local parity with live `<t> logs` and global `logs <t>`. Without this, a bare
+# `logs` argv hits the node image entrypoint as `node logs` → MODULE_NOT_FOUND
+# /app/logs (common typo after `<t> restart`).
+if [[ "$1" == "logs" ]]; then
+  docker logs -f "$app_name"
+  exit 0
 fi
 
 action_name="$1"
