@@ -124,7 +124,7 @@ LIVE (compose prod — container/service names from .dsshrc):
   logs | logs <t>  follow compose service logs
   logs rlog        follow resource logger snapshot (latest.txt)
   <t> logs         same as logs <t>
-  rlog [on|off|status]
+  rlog [on|up|off|status]  (bare rlog toggles; prefer on/up)
   migrate          dssh_live_migrate_cmd in dssh_live_migrate_service
   <t> restart      rebuild+replace ONE service (--no-deps); site stays up
   <t> start        same as restart on live (rolling replace)
@@ -1239,7 +1239,7 @@ rlog_status() {
 rlog_toggle() {
   local mode="${1-}"
   case "$mode" in
-    on|start)
+    on|start|up)
       rlog_start
       ;;
     off|stop)
@@ -1250,6 +1250,7 @@ rlog_toggle() {
       rlog_status
       ;;
     "")
+      # Toggle — prefer `dssh rlog on` / `up` in scripts and stack tabs.
       if rlog_is_running >/dev/null; then
         rlog_stop
         echo "rlog off"
@@ -1258,7 +1259,7 @@ rlog_toggle() {
       fi
       ;;
     *)
-      echo "Usage: dssh rlog [on|off|status]" >&2
+      echo "Usage: dssh rlog [on|up|off|status]" >&2
       return 1
       ;;
   esac
