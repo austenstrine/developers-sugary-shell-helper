@@ -135,6 +135,34 @@ test_local_logs_target() {
 	fi
 }
 
+test_local_start_detached_by_default() {
+	harness_mktemp
+	install_mocks "image_inspect=1"
+	# No *_start_detached in rc — start must pass docker run -d.
+	write_minimal_rc
+	capture_dssh s backend start -nobuild
+	assert_exit "$CAPTURE_RC" 0
+	# Detached path always inserts -d immediately after --rm (not seed -v runs).
+	if ! grep -F 'docker run --rm -d ' "$HARNESS_DOCKER_LOG" >/dev/null 2>&1; then
+		fail "expected docker run --rm -d by default; log=$(cat "$HARNESS_DOCKER_LOG")"
+	fi
+	assert_file_contains "$CAPTURE_ERR" "Detached"
+	assert_file_contains "$CAPTURE_ERR" "logs backend"
+}
+
+test_local_start_detached_override_off() {
+	harness_mktemp
+	install_mocks "image_inspect=1"
+	write_minimal_rc 'backend_start_detached=0'
+	capture_dssh s backend start -nobuild
+	assert_exit "$CAPTURE_RC" 0
+	# Foreground attach: app docker run without -d after --rm.
+	if grep -F 'docker run --rm -d ' "$HARNESS_DOCKER_LOG" >/dev/null 2>&1; then
+		fail "backend_start_detached=0 must not docker run --rm -d; log=$(cat "$HARNESS_DOCKER_LOG")"
+	fi
+	assert_not_file_contains "$CAPTURE_ERR" "Detached"
+}
+
 test_live_custom_container_action() {
 	harness_mktemp
 	install_mocks "inspect_running=1"

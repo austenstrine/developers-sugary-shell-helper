@@ -11,7 +11,8 @@
 # backend_name=myapp-api
 # backend_image=myapp-api
 # backend_start="npm run dev"
-# backend_start_detached=1
+# start/restart detach by default; set =0 only for foreground attach:
+# backend_start_detached=0
 # backend_migrate="npm run prisma:migrate"
 # backend_migrate_local="docker compose up -d postgres"
 # Optional start/restart preflight (both detect + apply required):
@@ -27,7 +28,6 @@
 # frontend_service=web
 # frontend_name=myapp-web
 # frontend_start="npm run dev"
-# frontend_start_detached=1
 
 # proxy=./ops/nginx
 # proxy_aliases=nginx
@@ -36,7 +36,6 @@
 # proxy_user=root
 # proxy_mount_node_modules=0
 # proxy_start="nginx -g 'daemon off;'"
-# proxy_start_detached=1
 
 # --- mode --------------------------------------------------------------------
 # dssh_mode=auto          # auto|live|local  (or export DSSH_MODE)

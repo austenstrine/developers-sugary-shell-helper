@@ -142,7 +142,7 @@ LOCAL (dev containers labeled dssh.image):
   status | ps      dssh app containers + infra + rlog
   logs | logs <t>  follow dssh start containers
   <t> logs         same as logs <t> (do not pass logs as a container CMD)
-  <t> start|restart  rebuild image, then replace that container
+  <t> start|restart  rebuild image, replace container (detached by default)
   <t> migrate      via target action config
   gpu-setup        install NVIDIA Container Toolkit
   gpu-probe        soft-detect Docker GPU (prints --gpus all|cpu-only; always exits 0)
@@ -151,9 +151,9 @@ Examples:
   dssh publish
   dssh status
   dssh health
-  dssh logs api
-  dssh backend logs
   dssh backend restart
+  dssh logs backend
+  dssh backend logs
   dssh stop --hard
   dssh backend start
   dssh rnano prod_env
@@ -162,6 +162,11 @@ Targets, live services, health probes, and publish/backup paths are all
 defined in .dsshrc — see .dsshrc.example in the tool repo.
 
 start/restart always rebuild unless -nobuild / --nobuild.
+Local start/restart runs `docker run -d` by default so the CLI (and the
+shared docker flock) return; follow with `dssh logs <target>`. Set
+`<t>_start_detached=0` only when you intentionally want a foreground
+attach (that holds the flock until the container exits — other dssh
+docker ops will wait).
 On live, restart = compose up -d --build --no-deps <service>.
 Docker build/stop/run share a lock so two restarts cannot unpack an
 image and force-remove a container at the same time.
@@ -1719,7 +1724,16 @@ action_detached_var="${target_name}_${action_name}_detached"
 action_local_cmd="${!action_local_var-}"
 action_container_cmd="${!action_container_var-}"
 action_attach="${!action_attach_var-1}"
-action_detached="${!action_detached_var-0}"
+# start/restart: detach by default so the flock is not held for the whole
+# container lifetime (foreground attach made later `dssh` calls wait).
+# Other actions stay attached unless `<t>_<action>_detached=1`.
+if [[ -n "${!action_detached_var-}" ]]; then
+  action_detached="${!action_detached_var}"
+elif [[ "$action_name" == "start" ]]; then
+  action_detached=1
+else
+  action_detached=0
+fi
 
 if [[ "$action_detached" == "1" ]]; then
   action_attach=0
@@ -1768,6 +1782,9 @@ if [[ -n "$action_local_cmd" || -n "$action_container_cmd" ]]; then
       remove_container "dssh-${target_name}-start"
     fi
     run_container_shell "$image_name" "$context_path" "$workdir_path" "$action_attach" "$action_container_name" "$mount_node_modules" "$action_detached" "$(append_cli_args "$action_container_cmd" "$@")"
+    if [[ "$action_name" == "start" && "$action_detached" == "1" ]]; then
+      echo "Detached $action_container_name. Follow: $tool_bin logs $target_name" >&2
+    fi
     exit 0
   fi
 
