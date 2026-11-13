@@ -11,6 +11,7 @@ test_help_flag() {
 	assert_exit "$CAPTURE_RC" 0
 	assert_file_contains "$CAPTURE_OUT" "Usage:"
 	assert_file_contains "$CAPTURE_OUT" "gpu-probe"
+	assert_file_contains "$CAPTURE_OUT" "launch"
 }
 
 test_help_dash_h() {

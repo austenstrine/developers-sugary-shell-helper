@@ -144,6 +144,7 @@ LOCAL (dev containers labeled dssh.image):
   <t> logs         same as logs <t> (do not pass logs as a container CMD)
   <t> start|restart  rebuild image, replace container (detached by default)
   <t> migrate      via target action config
+  launch           local stack bring-up via dssh_launch_local (when set)
   gpu-setup        install NVIDIA Container Toolkit
   gpu-probe        soft-detect Docker GPU (prints --gpus all|cpu-only; always exits 0)
 
@@ -151,6 +152,7 @@ Examples:
   dssh publish
   dssh status
   dssh health
+  dssh launch
   dssh backend restart
   dssh logs backend
   dssh backend logs
@@ -178,6 +180,7 @@ Optional start/restart preflight (.dsshrc, per target):
 
 Optional global overrides:
   dssh_stop_local / dssh_status_local / dssh_logs_local / dssh_publish_local
+  dssh_launch_local
   dssh_mode=auto|live|local
 
 Resource logger (.dsshrc):
