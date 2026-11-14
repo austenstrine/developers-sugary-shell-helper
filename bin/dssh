@@ -145,6 +145,7 @@ LOCAL (dev containers labeled dssh.image):
   <t> start|restart  rebuild image, replace container (detached by default)
   <t> migrate      via target action config
   launch           local stack bring-up via dssh_launch_local (when set)
+  land             local stack teardown via dssh_land_local (when set; opposite of launch)
   gpu-setup        install NVIDIA Container Toolkit
   gpu-probe        soft-detect Docker GPU (prints --gpus all|cpu-only; always exits 0)
 
@@ -153,6 +154,7 @@ Examples:
   dssh status
   dssh health
   dssh launch
+  dssh land
   dssh backend restart
   dssh logs backend
   dssh backend logs
@@ -180,7 +182,7 @@ Optional start/restart preflight (.dsshrc, per target):
 
 Optional global overrides:
   dssh_stop_local / dssh_status_local / dssh_logs_local / dssh_publish_local
-  dssh_launch_local
+  dssh_launch_local / dssh_land_local
   dssh_mode=auto|live|local
 
 Resource logger (.dsshrc):
@@ -1400,6 +1402,25 @@ run_global_action() {
     return 0
   fi
 
+  # land = opposite of launch: local stack teardown only (never on live).
+  # Do not hold the docker flock here — consumer scripts often call `dssh stop`
+  # (nested process) and would deadlock on the same lock.
+  if [[ "$action_name" == "land" ]]; then
+    shift
+    if is_live_stack; then
+      echo "LIVE: refusing land (local stack teardown only)." >&2
+      echo "  One service:  dssh <target> stop" >&2
+      echo "  Hard cutover: dssh stop --hard" >&2
+      return 1
+    fi
+    if [[ -z "$override_cmd" ]]; then
+      echo "land: set dssh_land_local in .dsshrc (opposite of dssh launch)" >&2
+      return 1
+    fi
+    run_local_shell "$(append_cli_args "$override_cmd" "$@")"
+    return 0
+  fi
+
   if [[ -n "$override_cmd" ]]; then
     shift
     if [[ "$action_name" == "stop" ]]; then
@@ -1520,7 +1541,8 @@ fi
 run_as_global=0
 if [[ "$1" == "stop" || "$1" == "status" || "$1" == "ps" || "$1" == "health" \
   || "$1" == "logs" || "$1" == "rlog" || "$1" == "rnano" || "$1" == "publish" \
-  || "$1" == "migrate" || "$1" == "gpu-setup" || "$1" == "gpu-probe" ]]; then
+  || "$1" == "migrate" || "$1" == "gpu-setup" || "$1" == "gpu-probe" \
+  || "$1" == "land" ]]; then
   run_as_global=1
 elif bash_ident "$1"; then
   global_action_var="dssh_${1}_local"

@@ -60,6 +60,7 @@ Host/key overrides go in gitignored `.dsshrc.local`.
 | `<target>_start_preflight_default` | `N` or `Y` when empty/timeout (default `N`) |
 | `dssh_publish_local` | Required for `dssh publish` |
 | `dssh_launch_local` | Optional host cmd for `dssh launch` (local stack bring-up) |
+| `dssh_land_local` | Optional host cmd for `dssh land` (local stack teardown; opposite of launch) |
 | `dssh_env_backup_relpath` | Relative to `<alias>_repo` after `rnano` |
 | `dssh_rlog_*` | Resource logger interval/dir/targets/retention |
 | `dssh_stop_local` / `dssh_status_local` / … | Global host actions |

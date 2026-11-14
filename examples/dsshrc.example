@@ -61,6 +61,7 @@
 # --- global host actions -----------------------------------------------------
 # dssh_publish_local=./ops/deploy/live.sh     # required for `dssh publish`
 # dssh_launch_local=./scripts/dssh-launch     # optional: `dssh launch` local stack
+# dssh_land_local=./scripts/dssh-land         # optional: `dssh land` (opposite of launch)
 # dssh_stop_local='docker ps -aq --filter label=dssh.image | xargs -r docker rm -f'
 # dssh_env_backup_relpath=ops/tooling/env-backup.sh  # under <alias>_repo after rnano
 

@@ -68,6 +68,34 @@ dssh_rlog_interval=60"
 	pkill -f "$HARNESS_PROJECT/fake-rlog.sh" 2>/dev/null || true
 }
 
+test_land_requires_config() {
+	harness_mktemp
+	install_mocks
+	write_minimal_rc
+	capture_dssh land land
+	assert_exit "$CAPTURE_RC" 1
+	assert_file_contains "$CAPTURE_ERR" "dssh_land_local"
+}
+
+test_land_live_refused() {
+	harness_mktemp
+	install_mocks
+	write_live_rc "dssh_land_local='echo LAND_OK > \"$HARNESS_PROJECT/landed.txt\"'"
+	capture_dssh land land
+	assert_exit "$CAPTURE_RC" 1
+	assert_file_contains "$CAPTURE_ERR" "refusing land"
+	[[ ! -f "$HARNESS_PROJECT/landed.txt" ]] || fail "land must not run on live"
+}
+
+test_land_local_runs_override() {
+	harness_mktemp
+	install_mocks
+	write_minimal_rc "dssh_land_local='echo LAND_OK > \"$HARNESS_PROJECT/landed.txt\"'"
+	capture_dssh land land
+	assert_exit "$CAPTURE_RC" 0
+	assert_file_contains "$HARNESS_PROJECT/landed.txt" "LAND_OK"
+}
+
 test_stop_live_refused_without_hard() {
 	harness_mktemp
 	install_mocks

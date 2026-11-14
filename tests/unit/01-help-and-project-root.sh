@@ -12,6 +12,7 @@ test_help_flag() {
 	assert_file_contains "$CAPTURE_OUT" "Usage:"
 	assert_file_contains "$CAPTURE_OUT" "gpu-probe"
 	assert_file_contains "$CAPTURE_OUT" "launch"
+	assert_file_contains "$CAPTURE_OUT" "land"
 }
 
 test_help_dash_h() {
