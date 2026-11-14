@@ -167,8 +167,25 @@ test_logs_rlog_missing() {
 	install_mocks
 	write_minimal_rc 'dssh_rlog_dir=./.dssh/rlog'
 	capture_dssh lr logs rlog
-	# follow_rlog_logs fails if no latest.txt
+	# follow_rlog_logs fails if neither history.log nor latest.txt exists
 	assert_exit "$CAPTURE_RC" 1
+	assert_file_contains "$CAPTURE_ERR" "No rlog data"
+}
+
+test_logs_rlog_follows_history_nontty() {
+	harness_mktemp
+	install_mocks
+	write_minimal_rc 'dssh_rlog_dir=./.dssh/rlog'
+	mkdir -p "$HARNESS_PROJECT/.dssh/rlog"
+	printf '%s\n' '===== snap =====' 'KERNEL' '  oom-killer sample line' >"$HARNESS_PROJECT/.dssh/rlog/history.log"
+	printf '%s\n' 'latest-only' >"$HARNESS_PROJECT/.dssh/rlog/latest.txt"
+	# stdout redirected → non-TTY path uses tail -F on history.log
+	set +e
+	timeout -k 1 1 env DSSH_PROJECT_ROOT="$HARNESS_PROJECT" "$DSSH_BIN" logs rlog \
+		>"$HARNESS_TMP/rlog-follow.out" 2>"$HARNESS_TMP/rlog-follow.err"
+	set -e
+	assert_file_contains "$HARNESS_TMP/rlog-follow.out" "oom-killer sample line"
+	assert_not_file_contains "$HARNESS_TMP/rlog-follow.out" "latest-only"
 }
 
 run_all_tests_in_file

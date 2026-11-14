@@ -122,7 +122,7 @@ LIVE (compose prod — container/service names from .dsshrc):
   status | ps      compose prod services + rlog
   health           containers from dssh_live_health_* + optional HTTP probe
   logs | logs <t>  follow compose service logs
-  logs rlog        follow resource logger snapshot (latest.txt)
+  logs rlog        interactive follow of rlog history.log (less +F; scrollable)
   <t> logs         same as logs <t>
   rlog [on|up|off|status]  (bare rlog toggles; prefer on/up)
   migrate          dssh_live_migrate_cmd in dssh_live_migrate_service
@@ -141,6 +141,7 @@ LOCAL (dev containers labeled dssh.image):
   stop             stop dssh app containers + compose infra (+ dashboards)
   status | ps      dssh app containers + infra + rlog
   logs | logs <t>  follow dssh start containers
+  logs rlog        interactive follow of rlog history.log (less +F; scrollable)
   <t> logs         same as logs <t> (do not pass logs as a container CMD)
   <t> start|restart  rebuild image, replace container (detached by default)
   <t> migrate      via target action config
@@ -1083,17 +1084,35 @@ follow_live_logs() {
 }
 
 follow_rlog_logs() {
-  local dir latest
+  # Interactive scrollable follow of append-only history (KERNEL lines and tall
+  # snapshots stay reachable). Prefer less +F on a TTY: Ctrl-C to scroll, F to
+  # resume follow, q to quit. Non-TTY / no less → tail -F (terminal scrollback).
+  # latest.txt is rewritten each sample and is only a fallback when history is absent.
+  local dir latest history target
   dir="$(rlog_dir)"
   latest="$dir/latest.txt"
-  if [[ ! -f "$latest" ]]; then
-    echo "No rlog snapshot at $latest (start with: dssh rlog on)." >&2
+  history="$dir/history.log"
+  if [[ -f "$history" ]]; then
+    target="$history"
+  elif [[ -f "$latest" ]]; then
+    target="$latest"
+  else
+    echo "No rlog data at $dir (start with: dssh rlog on)." >&2
     return 1
   fi
-  if command -v watch >/dev/null 2>&1; then
-    exec watch -n "${dssh_rlog_interval:-1}" cat "$latest"
+  if [[ -t 1 ]] && command -v less >/dev/null 2>&1; then
+    # -R: pass ANSI if present; +F: start in follow mode at EOF
+    exec less -R +F -- "$target"
   fi
-  exec tail -F "$latest"
+  if [[ "$target" == "$history" ]]; then
+    exec tail -n 200 -F -- "$history"
+  fi
+  # latest.txt is replaced wholesale — poll without wiping the terminal (unlike watch).
+  while true; do
+    printf '\n----- %s -----\n' "$(date -Is 2>/dev/null || date)"
+    cat -- "$latest"
+    sleep "${dssh_rlog_interval:-1}"
+  done
 }
 
 rlog_script_path() {
