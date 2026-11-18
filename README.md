@@ -114,6 +114,18 @@ dssh gpu-probe                # soft-detect Docker GPU; prints --gpus all|cpu-on
 
 `dssh_gpus=auto` (default) enables `--gpus all` only after a real Docker attach probe succeeds. Missing toolkit, broken vendor/device discovery after a kernel upgrade, or empty GPU devices log a warning and continue cpu-only — start/restart/build never abort for GPU discovery. Set `dssh_gpus=off` to skip probing.
 
+## Build throttle (softlock caution)
+
+Defaults on every `docker build` / `compose` create|build|up path:
+
+| Cap | Default |
+|-----|---------|
+| `COMPOSE_PARALLEL_LIMIT` | `1` |
+| `BUILDKIT_MAX_PARALLELISM` | `1` |
+| `DOCKER_BUILDKIT` | `1` |
+
+Optional real BuildKit solver cap: create builder `dssh-throttle` from [`examples/buildkitd-throttle.toml`](examples/buildkitd-throttle.toml) (`max-parallelism = 1`), or `DSSH_ENSURE_THROTTLE_BUILDER=1` once when stall is clear. Stall gate still refuses build/start when softlock elevated (`DSSH_IGNORE_STALL=1` override). Never SIGKILL D-state.
+
 ## Tests
 
 ```bash
