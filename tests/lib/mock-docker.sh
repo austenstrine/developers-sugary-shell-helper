@@ -13,6 +13,7 @@
 #   compose_ps=text
 #   compose_fail=0|1
 #   stats_line=...
+#   buildx_throttle=0|1   # 1 → buildx inspect dssh-throttle succeeds
 set -euo pipefail
 
 log="${MOCK_DOCKER_LOG:-/dev/null}"
@@ -147,6 +148,30 @@ case "$cmd" in
 		;;
 	rm|kill|stop|build)
 		exit 0
+		;;
+	buildx)
+		# Default: no dssh-throttle builder (classic docker build path).
+		sub="${1-}"
+		shift || true
+		case "$sub" in
+			version)
+				echo "github.com/docker/buildx mock"
+				exit 0
+				;;
+			inspect)
+				name="${1-}"
+				if [[ "$(sc buildx_throttle 0)" == "1" && "$name" == "dssh-throttle" ]]; then
+					exit 0
+				fi
+				exit 1
+				;;
+			create|build)
+				exit 0
+				;;
+			*)
+				exit 0
+				;;
+		esac
 		;;
 	logs)
 		# Never follow forever in unit tests — print once and exit.

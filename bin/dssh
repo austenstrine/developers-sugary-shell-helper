@@ -176,7 +176,10 @@ On live, restart = compose up -d --build --no-deps <service>.
 Docker build/stop/run share a lock so two restarts cannot unpack an
 image and force-remove a container at the same time.
 Compose create/build defaults to COMPOSE_PARALLEL_LIMIT=1 (no build storms).
-Host softlock stall (D-state/RCU): refuse start/build/compose up while
+BuildKit throttle: BUILDKIT_MAX_PARALLELISM=1 + DOCKER_BUILDKIT=1 (export on
+build/compose). Optional builder dssh-throttle (buildkitd max-parallelism=1;
+see examples/buildkitd-throttle.toml). Host softlock stall (D-state/RCU):
+refuse start/build/compose up while
 ~/.local/state/host-softlock-watch/stall-elevated (or docker-pileon-pause)
 is present. Override: DSSH_IGNORE_STALL=1. Never SIGKILL D-state.
 
@@ -466,6 +469,7 @@ dssh_app_ids() {
 # spinning at 100%, inspect leak, reboot). One flock for all graph mutations
 # across every checkout, plus rlog inspect/stats.
 # Also: default COMPOSE_PARALLEL_LIMIT=1 so compose create/build does not storm.
+# BuildKit: BUILDKIT_MAX_PARALLELISM=1 + optional dssh-throttle builder.
 docker_lock_held=0
 dssh_docker_lock_path() {
   printf '%s\n' "${XDG_RUNTIME_DIR:-/tmp}/dssh-docker.lock"
@@ -473,6 +477,58 @@ dssh_docker_lock_path() {
 
 dssh_softlock_state_dir() {
   printf '%s\n' "${HOST_SOFTLOCK_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/host-softlock-watch}"
+}
+
+# Caps for compose + BuildKit (post-cache-clear softlock caution).
+dssh_apply_build_throttle_env() {
+  export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+  export BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}"
+  export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
+  # Prefer existing throttle builder for compose/buildx when unset.
+  if [[ -z "${BUILDX_BUILDER:-}" && "${DSSH_BUILDKIT_THROTTLE_BUILDER:-1}" != "0" ]]; then
+    if command -v docker >/dev/null 2>&1 && docker buildx inspect dssh-throttle >/dev/null 2>&1; then
+      export BUILDX_BUILDER=dssh-throttle
+    fi
+  fi
+}
+
+dssh_throttle_toml_path() {
+  local shipped="$tool_dir/../examples/buildkitd-throttle.toml"
+  if [[ -f "$shipped" ]]; then
+    printf '%s\n' "$(cd "$(dirname "$shipped")" && pwd)/$(basename "$shipped")"
+    return 0
+  fi
+  return 1
+}
+
+# Soft-create docker-container builder with max-parallelism=1. No-op if present
+# or disabled. Softlock caution: skip when stall elevated; never SIGKILL D-state.
+dssh_ensure_throttle_builder() {
+  if [[ "${DSSH_BUILDKIT_THROTTLE_BUILDER:-1}" == "0" ]]; then
+    return 1
+  fi
+  if [[ -n "${DSSH_BUILDKIT_BUILDER:-}" ]]; then
+    return 0
+  fi
+  command -v docker >/dev/null 2>&1 || return 1
+  if docker buildx inspect dssh-throttle >/dev/null 2>&1; then
+    return 0
+  fi
+  if dssh_host_stall_elevated; then
+    return 1
+  fi
+  local toml
+  if ! toml="$(dssh_throttle_toml_path)"; then
+    return 1
+  fi
+  # First create pulls buildkit image — only when explicitly ensuring.
+  if [[ "${DSSH_ENSURE_THROTTLE_BUILDER:-0}" != "1" ]]; then
+    return 1
+  fi
+  echo "dssh: creating buildx builder dssh-throttle (max-parallelism=1)..." >&2
+  docker buildx create --name dssh-throttle --driver docker-container \
+    --buildkitd-config "$toml" >/dev/null 2>&1 || return 1
+  return 0
 }
 
 # Host softlock watch elevated (D-state / RCU / softlock). Softlock caution.
@@ -583,10 +639,28 @@ build_image() {
   local dockerfile_path="$2"
   local context_path="$3"
   shift 3
+  local builder=""
 
+  dssh_apply_build_throttle_env
   refuse_if_host_stall "docker build $image_name" || return 1
   acquire_docker_lock
-  docker build "$@" -f "$dockerfile_path" -t "$image_name" "$context_path"
+
+  builder="${DSSH_BUILDKIT_BUILDER:-${BUILDX_BUILDER:-}}"
+  if [[ -z "$builder" ]]; then
+    dssh_ensure_throttle_builder || true
+    if docker buildx inspect dssh-throttle >/dev/null 2>&1; then
+      builder="dssh-throttle"
+      export BUILDX_BUILDER=dssh-throttle
+    fi
+  fi
+
+  # Prefer throttled buildx builder when present (real max-parallelism=1).
+  if [[ -n "$builder" ]] && docker buildx version >/dev/null 2>&1; then
+    docker buildx build --builder "$builder" --load "$@" \
+      -f "$dockerfile_path" -t "$image_name" "$context_path"
+  else
+    docker build "$@" -f "$dockerfile_path" -t "$image_name" "$context_path"
+  fi
 }
 
 seed_node_modules_volume() {
@@ -738,8 +812,9 @@ run_local_shell() {
   local shell_cmd="$1"
   local root
   printf -v root '%q' "$script_dir"
-  # Serialize compose create/build inside consumer .dsshrc snippets.
-  bash -lc "export COMPOSE_PARALLEL_LIMIT=\"\${COMPOSE_PARALLEL_LIMIT:-1}\"; cd $root && $shell_cmd"
+  dssh_apply_build_throttle_env
+  # Serialize compose create/build + BuildKit caps inside consumer .dsshrc snippets.
+  bash -lc "export COMPOSE_PARALLEL_LIMIT=\"\${COMPOSE_PARALLEL_LIMIT:-1}\"; export BUILDKIT_MAX_PARALLELISM=\"\${BUILDKIT_MAX_PARALLELISM:-1}\"; export DOCKER_BUILDKIT=\"\${DOCKER_BUILDKIT:-1}\"; ${BUILDX_BUILDER:+export BUILDX_BUILDER=\"${BUILDX_BUILDER}\"; }cd $root && $shell_cmd"
 }
 
 # Start/restart optional preflight (.dsshrc):
@@ -828,7 +903,10 @@ compose() {
       refuse_if_host_stall "compose $*" || return 1
       ;;
   esac
+  dssh_apply_build_throttle_env
   COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}" \
+  BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}" \
+  DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}" \
     docker compose --project-directory "$script_dir" "$@"
 }
 
@@ -856,7 +934,10 @@ compose_live() {
       refuse_if_host_stall "compose_live $*" || return 1
       ;;
   esac
+  dssh_apply_build_throttle_env
   COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}" \
+  BUILDKIT_MAX_PARALLELISM="${BUILDKIT_MAX_PARALLELISM:-1}" \
+  DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}" \
     docker compose --project-directory "$script_dir" \
     -f "$(live_compose_file)" \
     -f "$(live_compose_prod_file)" \

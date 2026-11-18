@@ -1,0 +1,19 @@
+# dssh BuildKit throttle — max one parallel solve step (softlock caution after
+# cache clear). Used by optional buildx builder `dssh-throttle`:
+#
+#   docker buildx create --name dssh-throttle --driver docker-container \
+#     --buildkitd-config examples/buildkitd-throttle.toml
+#
+# Or: DSSH_ENSURE_THROTTLE_BUILDER=1 dssh <target> build
+# (auto-create once when stall is clear).
+#
+# Env caps always exported by dssh on build/compose:
+#   COMPOSE_PARALLEL_LIMIT=1
+#   BUILDKIT_MAX_PARALLELISM=1
+#   DOCKER_BUILDKIT=1
+
+[worker.oci]
+  max-parallelism = 1
+
+[worker.containerd]
+  max-parallelism = 1
