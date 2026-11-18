@@ -175,6 +175,10 @@ docker ops will wait).
 On live, restart = compose up -d --build --no-deps <service>.
 Docker build/stop/run share a lock so two restarts cannot unpack an
 image and force-remove a container at the same time.
+Compose create/build defaults to COMPOSE_PARALLEL_LIMIT=1 (no build storms).
+Host softlock stall (D-state/RCU): refuse start/build/compose up while
+~/.local/state/host-softlock-watch/stall-elevated (or docker-pileon-pause)
+is present. Override: DSSH_IGNORE_STALL=1. Never SIGKILL D-state.
 
 Optional start/restart preflight (.dsshrc, per target):
   <t>_start_preflight_detect   exit 0 = ok; non-zero = pending step
@@ -461,9 +465,41 @@ dssh_app_ids() {
 # `docker build` with `docker rm -f` is what wedged the daemon (runc kill
 # spinning at 100%, inspect leak, reboot). One flock for all graph mutations
 # across every checkout, plus rlog inspect/stats.
+# Also: default COMPOSE_PARALLEL_LIMIT=1 so compose create/build does not storm.
 docker_lock_held=0
 dssh_docker_lock_path() {
   printf '%s\n' "${XDG_RUNTIME_DIR:-/tmp}/dssh-docker.lock"
+}
+
+dssh_softlock_state_dir() {
+  printf '%s\n' "${HOST_SOFTLOCK_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/host-softlock-watch}"
+}
+
+# Host softlock watch elevated (D-state / RCU / softlock). Softlock caution.
+dssh_host_stall_elevated() {
+  if [[ "${DSSH_IGNORE_STALL:-0}" == "1" ]]; then
+    return 1
+  fi
+  local d
+  d="$(dssh_softlock_state_dir)"
+  [[ -f "$d/stall-elevated" || -f "$d/docker-pileon-pause" ]]
+}
+
+refuse_if_host_stall() {
+  local op="$1"
+  if ! dssh_host_stall_elevated; then
+    return 0
+  fi
+  local d status
+  d="$(dssh_softlock_state_dir)"
+  status="$d/status.json"
+  echo "dssh: REFUSE $op — host stall elevated (D-state/RCU/softlock)." >&2
+  echo "dssh: do not pile on docker create/build; never SIGKILL D-state." >&2
+  if [[ -f "$status" ]]; then
+    echo "dssh: status → $status" >&2
+  fi
+  echo "dssh: wait for clear (./bin/agent-cli watchdog) or DSSH_IGNORE_STALL=1" >&2
+  return 1
 }
 
 acquire_docker_lock() {
@@ -548,6 +584,7 @@ build_image() {
   local context_path="$3"
   shift 3
 
+  refuse_if_host_stall "docker build $image_name" || return 1
   acquire_docker_lock
   docker build "$@" -f "$dockerfile_path" -t "$image_name" "$context_path"
 }
@@ -701,7 +738,8 @@ run_local_shell() {
   local shell_cmd="$1"
   local root
   printf -v root '%q' "$script_dir"
-  bash -lc "cd $root && $shell_cmd"
+  # Serialize compose create/build inside consumer .dsshrc snippets.
+  bash -lc "export COMPOSE_PARALLEL_LIMIT=\"\${COMPOSE_PARALLEL_LIMIT:-1}\"; cd $root && $shell_cmd"
 }
 
 # Start/restart optional preflight (.dsshrc):
@@ -785,7 +823,13 @@ maybe_run_start_preflight() {
 }
 
 compose() {
-  docker compose --project-directory "$script_dir" "$@"
+  case " $* " in
+    *" build "*|*" create "*|*" up "*)
+      refuse_if_host_stall "compose $*" || return 1
+      ;;
+  esac
+  COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}" \
+    docker compose --project-directory "$script_dir" "$@"
 }
 
 live_compose_file() {
@@ -807,7 +851,13 @@ live_compose_prod_file() {
 }
 
 compose_live() {
-  docker compose --project-directory "$script_dir" \
+  case " $* " in
+    *" build "*|*" create "*|*" up "*)
+      refuse_if_host_stall "compose_live $*" || return 1
+      ;;
+  esac
+  COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}" \
+    docker compose --project-directory "$script_dir" \
     -f "$(live_compose_file)" \
     -f "$(live_compose_prod_file)" \
     "$@"
@@ -1804,6 +1854,11 @@ if [[ -n "$action_local_cmd" || -n "$action_container_cmd" ]]; then
     esac
   done
   set -- "${action_args[@]+"${action_args[@]}"}"
+
+  # Start/build creates docker load; refuse during host D-state/RCU stall.
+  if [[ "$action_name" == "start" || "$action_name" == "build" ]]; then
+    refuse_if_host_stall "$target_name $action_name" || exit 1
+  fi
 
   acquire_docker_lock
 
